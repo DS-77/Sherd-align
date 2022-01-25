@@ -1,4 +1,4 @@
-#Sherd Align Programme
+# Sherd Align Programme
 
 This programme is designed to align sherds in RGB images to respective depth image.
 
