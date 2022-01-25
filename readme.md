@@ -1,8 +1,7 @@
 # Sherd Align Programme
 
-This programme is designed to align sherds in RGB images to respective depth image.
+This programme is designed to align sherds in RGB images to the respective depth images.
 
----
 
 ### How To Use:
 1) Download the "align.py" file and move it to the directory of your choosing.

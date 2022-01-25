@@ -1,5 +1,5 @@
 """
-This module aligns sherds in RGB images to respective depth image.
+This module aligns sherds in RGB images to the respective depth images.
 
 version: 1.0.0
 Last Edited: 25-01-22
@@ -156,7 +156,7 @@ def get_img_contours(img):
 
 def align(filename, rgb_dir, depth_dir, output_path):
     """
-    This function pairs the splits and pairs sherds from RGB image with respective depth image.
+    This function pairs the splits and pairs sherds from RGB image with the respective depth images.
     :param filename: Name of RGB image
     :param rgb_dir: Path to directory with RGB images
     :param depth_dir: Path to directory with depth images
