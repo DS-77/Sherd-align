@@ -7,6 +7,8 @@ Last Edited: 25-01-22
 import os
 import cv2 as cv
 import numpy as np
+import math
+from math import atan2, radians
 import argparse
 
 
@@ -31,7 +33,7 @@ def create_result(sherd_img, depth_img):
     result = np.zeros((height, width, 3), dtype=np.uint8)
 
     result[0:rr, 0:rc, :] = RGB_B
-    result[0:dr, rc:rc+dc, :] = D_B
+    result[0:dr, rc:rc + dc, :] = D_B
 
     return result
 
@@ -88,15 +90,49 @@ def crop(img, contours):
     """
     x, y, w, h = cv.boundingRect(contours)
     new_img = img[y:y + h, x:x + w]
-    # (_, _), (_, _), angle = cv.minAreaRect(contours)
-    #     theta = 0
-    #     if angle < 3:
-    #         theta = -93
-    #     elif angle > 80:
-    #         theta = int(angle) - 5
-    #
-    #     new_img = cv.rotate(new_img, theta, new_img)
+
     return new_img
+
+
+def rotate_img(img, theta):
+    h, w, _ = np.shape(img)
+    img_centre = (w//2, h//2)
+
+    rot = cv.getRotationMatrix2D(img_centre, theta, 1)
+    rad = radians(theta)
+    sin = math.sin(rad)
+    cos = math.cos(rad)
+    b_w = int((h * abs(sin)) + (w * abs(cos)))
+    b_h = int((h * abs(cos)) + (w * abs(sin)))
+
+    rot[0, 2] += ((b_w / 2) - img_centre[0])
+    rot[1, 2] += ((b_h / 2) - img_centre[1])
+    result = cv.warpAffine(img, rot, (b_w, b_h), flags=cv.INTER_LINEAR)
+    return result
+
+
+def get_angle(pts):
+    # Getting angle
+    size = len(pts)
+
+    # buffer
+    data_pts = np.empty((size, 2), dtype=np.float64)
+
+    for c in range(data_pts.shape[0]):
+        data_pts[c, 0] = pts[c, 0, 0]
+        data_pts[c, 1] = pts[c, 0, 1]
+
+    # Trying Principal Component Analysis
+    mean = np.empty(0)
+    mean, eigenvectors, eigenvalues = cv.PCACompute2(data_pts, mean)
+
+    # Centre of object
+    centre = (int(mean[0, 0]), int(mean[0, 1]))
+
+    # Angle of Orientation in radian
+    angle = -(np.rad2deg(atan2(eigenvectors[0, 1], eigenvectors[0, 0])) - 90)
+
+    return angle
 
 
 def find_square(cnt):
@@ -218,9 +254,35 @@ def align(filename, rgb_dir, depth_dir, output_path):
 
         # Constructs result image
         r_img = crop(A, results[r][0])
-        d_img = cv.imread(os.path.join(depth_dir, results[r][1]))
-        result_img = create_result(r_img, d_img)
-        cv.imwrite(f"{output_path}/{scan_name}_{r+1}.png", result_img)
+
+        # Flips depth/mask images for internal sherd rgb images
+        if ending is None or ending == "ext":
+            d_img = cv.imread(os.path.join(depth_dir, results[r][1]))
+        else:
+            d_img = cv.flip(cv.imread(os.path.join(depth_dir, results[r][1])), 1)
+
+        # rgb_angle = get_angle(results[r][0])
+        # depth_angle = get_angle(results[r][3])
+
+        # Retrieve angles from the depth and rgb images; calculates the angle of rotation
+        (x1, y1), (Ma1, ma1), depth_angle = cv.fitEllipse(results[r][3])
+        (x2, y2), (Ma2, ma2), rgb_angle = cv.fitEllipse(results[r][0])
+        theta = rgb_angle - depth_angle if rgb_angle > depth_angle else depth_angle - rgb_angle
+
+        print(f"--- RGB Angle(radians): {rgb_angle}")
+        print(f"--- Dept Angle(radians): {depth_angle}")
+
+        # theta = rgb_angle - depth_angle if rgb_angle > depth_angle else -int(depth_angle - rgb_angle)
+
+        print(f"--- Theta: {theta}")
+
+        rot_img = rotate_img(r_img, theta)
+        result_img = create_result(rot_img, d_img)
+
+        if ending is not None:
+            cv.imwrite(f"{output_path}/{scan_name}_{ending}_{r + 1}.png", result_img)
+        else:
+            cv.imwrite(f"{output_path}/{scan_name}_{r + 1}.png", result_img)
 
 
 # Argument Parser
@@ -234,6 +296,7 @@ args = vars(ap.parse_args())
 if 1 < len(args["directories"]) < 3:
     # Retrieve RGB files
     rgb_files = os.listdir(args["directories"][0])
+    rgb_files.sort()
 
     # Run RGB images through "align" function
     for i in rgb_files:

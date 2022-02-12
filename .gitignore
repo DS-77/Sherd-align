@@ -2,3 +2,7 @@ rgb/
 depth/
 output/
 .idea/
+match/
+masks/
+maskMaker.py
+test_align.py

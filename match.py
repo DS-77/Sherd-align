@@ -3,7 +3,7 @@ This module matches individual sherds to their depth image base on shape similar
 directory.
 
 version: 1.0.0
-Last Edited: 04-02-22
+Last Edited: 09-02-22
 """
 import os
 import cv2 as cv
@@ -34,7 +34,7 @@ def create_result(sherd_img, depth_img, sim):
     result[0:rr, 0:rc, :] = RGB_B
     result[0:dr, rc:rc+dc, :] = D_B
 
-    cv.putText(result, f'Similarity: {sim}', (50,50), cv.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2, cv.LINE_AA)
+    cv.putText(result, f'Similarity: {sim}', (50, 50), cv.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2, cv.LINE_AA)
 
     return result
 
@@ -91,14 +91,6 @@ def crop(img, contours):
     """
     x, y, w, h = cv.boundingRect(contours)
     new_img = img[y:y + h, x:x + w]
-    # (_, _), (_, _), angle = cv.minAreaRect(contours)
-    #     theta = 0
-    #     if angle < 3:
-    #         theta = -93
-    #     elif angle > 80:
-    #         theta = int(angle) - 5
-    #
-    #     new_img = cv.rotate(new_img, theta, new_img)
     return new_img
 
 
@@ -203,11 +195,11 @@ def match(filename, rgb_dir, depth_dir, output_path):
     # Determines if the number of Sherds in the RGB image matches the number of depth images
     if len(sherd_cont) == len(dp_contours):
         # Pairs the RGB contours to the matching depth contours
-        print("--- Matching RGB contours to depth contours.")
+        print("--- Matching RGB contours to depth/mask contours.")
         results = contour_match(sherd_cont, dp_contours)
     else:
         print(
-            f"ERROR: Number of sherds for {scan_name} do not match the number of depth images. Sherd: {len(sherd_cont)} Depth: {len(dp_contours)}")
+            f"ERROR: Number of sherds for {scan_name} do not match the number of depth/mask images. Sherd: {len(sherd_cont)} Depth: {len(dp_contours)}")
         return
 
     print(f"--- {len(results)} results were matched.")
