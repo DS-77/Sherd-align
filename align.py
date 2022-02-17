@@ -1,15 +1,16 @@
 """
 This module aligns sherds in RGB images to the respective depth images.
 
-version: 1.0.0
-Last Edited: 25-01-22
+version: 1.0.2
+Last Edited: 16-02-22
 """
+import argparse
+import math
 import os
+from math import radians
+
 import cv2 as cv
 import numpy as np
-import math
-from math import atan2, radians
-import argparse
 
 
 def create_result(sherd_img, depth_img):
@@ -19,7 +20,6 @@ def create_result(sherd_img, depth_img):
     :param depth_img: cropped Depth image
     :return: a ndarray
     """
-
     padding = 100
 
     RGB_B = cv.copyMakeBorder(sherd_img, padding, padding, padding, padding, cv.BORDER_CONSTANT, value=(0, 0, 0))
@@ -94,43 +94,100 @@ def crop(img, contours):
     return new_img
 
 
+def resize_img(img, w, h):
+    """
+    This method downsizes the image.
+    :param img: An image.
+    :param w: Target image width.
+    :param h: Target image height.
+    :return: resized image.
+    """
+    v_scale = h / img.shape[0]
+    h_scale = w / img.shape[1]
+
+    scale = max(v_scale, h_scale)
+    dim = (int(scale * img.shape[1]), int(scale * img.shape[0]))
+    n_img = cv.resize(img, dim, interpolation=cv.INTER_LINEAR)
+
+    return n_img
+
+
 def rotate_img(img, theta):
-    h, w, _ = np.shape(img)
-    img_centre = (w//2, h//2)
+    """
+    This function rotates a given image about the centre by a given angle.
+    :param img: An image.
+    :param theta: A number to represent the angle.
+    :return: An image.
+    """
+    if (theta % 360.0) == 0.0:
+        result = img
+    else:
+        h, w, _ = np.shape(img)
+        img_centre = (w // 2, h // 2)
 
-    rot = cv.getRotationMatrix2D(img_centre, theta, 1)
-    rad = radians(theta)
-    sin = math.sin(rad)
-    cos = math.cos(rad)
-    b_w = int((h * abs(sin)) + (w * abs(cos)))
-    b_h = int((h * abs(cos)) + (w * abs(sin)))
+        rot = cv.getRotationMatrix2D(img_centre, theta, 1)
+        rad = radians(theta)
+        sin = math.sin(rad)
+        cos = math.cos(rad)
+        b_w = int((h * abs(sin)) + (w * abs(cos)))
+        b_h = int((h * abs(cos)) + (w * abs(sin)))
 
-    rot[0, 2] += ((b_w / 2) - img_centre[0])
-    rot[1, 2] += ((b_h / 2) - img_centre[1])
-    result = cv.warpAffine(img, rot, (b_w, b_h), flags=cv.INTER_LINEAR)
+        rot[0, 2] += ((b_w / 2) - img_centre[0])
+        rot[1, 2] += ((b_h / 2) - img_centre[1])
+        result = cv.warpAffine(img, rot, (b_w, b_h), flags=cv.INTER_LINEAR)
+
     return result
 
 
-def get_angle(pts):
-    # Getting angle
-    size = len(pts)
+def get_centre(pts):
+    """
+    This function calculates the centre of the given contour.
+    :param pts: A contour.
+    :return: A tuple. i.e (x, y)
+    """
+    mm = cv.moments(pts)
+    x = int(mm['m10'] / mm['m00'])
+    y = int(mm['m01'] / mm['m00'])
 
-    # buffer
-    data_pts = np.empty((size, 2), dtype=np.float64)
+    return x, y
 
-    for c in range(data_pts.shape[0]):
-        data_pts[c, 0] = pts[c, 0, 0]
-        data_pts[c, 1] = pts[c, 0, 1]
 
-    # Trying Principal Component Analysis
-    mean = np.empty(0)
-    mean, eigenvectors, eigenvalues = cv.PCACompute2(data_pts, mean)
+def get_max_distance(pts, centre):
+    """
+    This function calculates the furthest point in the given contour from the centre of the contour.
+    :param pts: A contour.
+    :param centre: A tuple to represent the centre point. i.e (x, y)
+    :return: An int Distance, A tuple of the max point.
+    """
+    d = 0
+    max_pt = None
 
-    # Centre of object
-    centre = (int(mean[0, 0]), int(mean[0, 1]))
+    for i in range(len(pts)):
+        for x, y in pts[i]:
+            # Find distance from centre
+            temp_d = math.sqrt(math.pow((x - centre[0]), 2) + math.pow((y - centre[1]), 2))
 
-    # Angle of Orientation in radian
-    angle = -(np.rad2deg(atan2(eigenvectors[0, 1], eigenvectors[0, 0])) - 90)
+            # Check if distance is greater than previous max distance
+            if temp_d > d:
+                d = temp_d
+                max_pt = (x, y)
+
+    return d, max_pt
+
+
+def get_angle(rgb_pts, depth_pts, cen_pts):
+    """
+    This function calculates the angle between the three points: furthest rgb point, the furthest depth point,
+    and the centre point of the contour.
+    :param rgb_pts: A tuple, furthest rgb point of a contour.
+    :param depth_pts: A tuple, the furthest depth point of a contour.
+    :param cen_pts: A tuple, centre point of the contour.
+    :return: An float angle.
+    """
+    angle = math.degrees(
+        math.atan2(depth_pts[1] - cen_pts[1], depth_pts[0] - cen_pts[0]) - math.atan2(rgb_pts[1] - cen_pts[1],
+                                                                                      rgb_pts[0] - cen_pts[0]))
+    angle = angle + 360 if angle < 0 else angle
 
     return angle
 
@@ -228,7 +285,8 @@ def align(filename, rgb_dir, depth_dir, output_path):
     # Reads the depth image, convert it to a binary image, and finds the contours.
     for d in dp_files:
         d_img = cv.imread(os.path.join(depth_dir, d))
-        _, dp_BW = cv.threshold(cv.cvtColor(d_img, cv.COLOR_BGR2GRAY), 15, 255, cv.THRESH_BINARY)
+        _, dp_BW = cv.threshold(cv.cvtColor(cv.GaussianBlur(d_img, (31, 31), 0), cv.COLOR_BGR2GRAY), 20, 255,
+                                cv.THRESH_BINARY)
         t_cont = get_img_contours(dp_BW)
         # Store the contours with the depth image name
         dp_contours.append((t_cont[0], d))
@@ -261,22 +319,25 @@ def align(filename, rgb_dir, depth_dir, output_path):
         else:
             d_img = cv.flip(cv.imread(os.path.join(depth_dir, results[r][1])), 1)
 
-        # rgb_angle = get_angle(results[r][0])
-        # depth_angle = get_angle(results[r][3])
+        t_img = resize_img(r_img, d_img.shape[1], d_img.shape[0])
+        _, t_BW = cv.threshold(cv.cvtColor(cv.GaussianBlur(t_img, (31, 31), 0), cv.COLOR_BGR2GRAY), 20, 255,
+                               cv.THRESH_BINARY)
+        cont, _ = cv.findContours(t_BW, cv.RETR_CCOMP, cv.CHAIN_APPROX_NONE)
+        cont = sorted(cont, key=cv.contourArea, reverse=True)
+        f_cnt = cont[0]
 
         # Retrieve angles from the depth and rgb images; calculates the angle of rotation
-        (x1, y1), (Ma1, ma1), depth_angle = cv.fitEllipse(results[r][3])
-        (x2, y2), (Ma2, ma2), rgb_angle = cv.fitEllipse(results[r][0])
-        theta = rgb_angle - depth_angle if rgb_angle > depth_angle else depth_angle - rgb_angle
+        r_cen = get_centre(f_cnt)
+        d_cen = get_centre(results[r][3])
 
-        print(f"--- RGB Angle(radians): {rgb_angle}")
-        print(f"--- Dept Angle(radians): {depth_angle}")
+        cen = ((r_cen[0] + d_cen[0]) / 2, (r_cen[1] + d_cen[1]) / 2)
 
-        # theta = rgb_angle - depth_angle if rgb_angle > depth_angle else -int(depth_angle - rgb_angle)
+        r_d, r_pt = get_max_distance(f_cnt, r_cen)
+        d_d, d_pt = get_max_distance(results[r][3], d_cen)
 
-        print(f"--- Theta: {theta}")
+        theta = get_angle(r_pt, d_pt, cen)
 
-        rot_img = rotate_img(r_img, theta)
+        rot_img = rotate_img(r_img, -theta)
         result_img = create_result(rot_img, d_img)
 
         if ending is not None:
