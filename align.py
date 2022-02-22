@@ -159,20 +159,27 @@ def get_max_distance(pts, centre):
     :param centre: A tuple to represent the centre point. i.e (x, y)
     :return: An int Distance, A tuple of the max point.
     """
-    d = 0
+    max_d = 0.0
+    min_d = 10000
     max_pt = None
+    min_pt = None
 
-    for i in range(len(pts)):
-        for x, y in pts[i]:
+    for d in range(len(pts)):
+        for x, y in pts[d]:
             # Find distance from centre
             temp_d = math.sqrt(math.pow((x - centre[0]), 2) + math.pow((y - centre[1]), 2))
 
             # Check if distance is greater than previous max distance
-            if temp_d > d:
-                d = temp_d
+            if temp_d > max_d:
+                max_d = temp_d
                 max_pt = (x, y)
 
-    return d, max_pt
+            # Check if distance is less than previous min distance
+            if temp_d < min_d:
+                min_d = temp_d
+                min_pt = (x, y)
+
+    return max_d, max_pt, min_d, min_pt
 
 
 def get_angle(rgb_pts, depth_pts, cen_pts):
@@ -284,7 +291,11 @@ def align(filename, rgb_dir, depth_dir, output_path):
 
     # Reads the depth image, convert it to a binary image, and finds the contours.
     for d in dp_files:
-        d_img = cv.imread(os.path.join(depth_dir, d))
+        if ending is None or ending == "ext":
+            d_img = cv.imread(os.path.join(depth_dir, d))
+        else:
+            d_img = cv.flip(cv.imread(os.path.join(depth_dir, d)), 1)
+
         _, dp_BW = cv.threshold(cv.cvtColor(cv.GaussianBlur(d_img, (31, 31), 0), cv.COLOR_BGR2GRAY), 20, 255,
                                 cv.THRESH_BINARY)
         t_cont = get_img_contours(dp_BW)
@@ -332,13 +343,45 @@ def align(filename, rgb_dir, depth_dir, output_path):
 
         cen = ((r_cen[0] + d_cen[0]) / 2, (r_cen[1] + d_cen[1]) / 2)
 
-        r_d, r_pt = get_max_distance(f_cnt, r_cen)
-        d_d, d_pt = get_max_distance(results[r][3], d_cen)
+        r_max_d, r_max_pt, r_min_d, r_min_pt = get_max_distance(f_cnt, r_cen)
+        d_max_d, d_max_pt, d_min_d, d_min_pt = get_max_distance(results[r][3], d_cen)
 
-        theta = get_angle(r_pt, d_pt, cen)
+        # Max_theta: Angle calculated from the max depth, RGB, and centre point
+        # Min_theta: Angle calculated from the min depth, RGB, and centre point
+        max_theta = get_angle(r_max_pt, d_max_pt, cen)
+        min_theta = get_angle(r_min_pt, d_min_pt, cen)
 
-        rot_img = rotate_img(r_img, -theta)
-        result_img = create_result(rot_img, d_img)
+        # VISUAL >>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+        # Uncomment code below to see visual of the sherd contours, centre, maxima, and minima points.
+        # Note: RGB image is scaled to roughly match depth image.
+
+        # Draw Contours
+        # cv.drawContours(t_img, f_cnt, -1, (255, 255, 255), 2)
+        # cv.drawContours(d_img, results[r][3], -1, (0, 204, 255), 2)
+
+        # RED -> MAX POINT
+        # BLUE -> CENTRE
+        # GREEN -> MIN POINT
+        # cv.circle(t_img, r_max_pt, 8, (0, 0, 255), -1)
+        # cv.circle(t_img, r_cen, 8, (255, 0, 0), -1)
+        # cv.circle(t_img, r_min_pt, 8, (0, 255, 0), -1)
+        #
+        # cv.circle(d_img, d_max_pt, 8, (0, 0, 255), -1)
+        # cv.circle(d_img, d_cen, 8, (255, 0, 0), -1)
+        # cv.circle(d_img, d_min_pt, 8, (0, 255, 0), -1)
+        #
+        # cv.imshow("RGB", t_img)
+        # cv.imshow("Depth", d_img)
+        # cv.waitKey()
+        # >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+        # Rotate the RGB image with respect to the Depth image
+        # rot_img = rotate_img(r_img, -min_theta)
+        # result_img = create_result(rot_img, d_img)
+
+        # Rotate the Depth image with respect to the RGB image
+        rot_img = rotate_img(d_img, max_theta)
+        result_img = create_result(r_img, rot_img)
 
         if ending is not None:
             cv.imwrite(f"{output_path}/{scan_name}_{ending}_{r + 1}.png", result_img)
