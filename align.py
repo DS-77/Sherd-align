@@ -1,8 +1,8 @@
 """
 This module aligns sherds in RGB images to the respective depth images.
 
-version: 1.0.2
-Last Edited: 16-02-22
+version: 1.0.3
+Last Edited: 24-02-22
 """
 import argparse
 import math
@@ -13,6 +13,7 @@ import cv2 as cv
 import numpy as np
 
 
+# TODO: Add documentation.
 def create_result(sherd_img, depth_img):
     """
     This function creates the final image containing the cropped rgb and depth image.
@@ -137,6 +138,43 @@ def rotate_img(img, theta):
         result = cv.warpAffine(img, rot, (b_w, b_h), flags=cv.INTER_LINEAR)
 
     return result
+
+
+def overlay_img(r_img, d_img):
+    # TODO: Finish this function.
+    target_height = r_img.shape[0]
+    target_width = r_img.shape[1]
+
+    d_height = d_img.shape[0]
+    d_width = d_img.shape[1]
+
+    # Get margins
+    margin_height = (d_height - target_height) // 2
+    margin_width = (d_width - target_width) // 2
+
+    roi = r_img[margin_width:margin_width + target_width, margin_height:margin_height + target_height]
+    temp = cv.addWeighted(roi, 0.8, d_img, 0.2, 0)
+    r_img[margin_width:margin_width + target_width, margin_height:margin_height + target_height] = temp
+
+    return r_img
+
+
+def add_cm_scale(img):
+    padding = 100
+    temp_img = cv.copyMakeBorder(img, 0, padding, 0, 0, cv.BORDER_CONSTANT, value=(0, 0, 0))
+
+    # Draw 1 cm scale
+    h, w, _ = img.shape
+    x = w / 2
+
+    # TODO: Adjust line height
+    cv.line(temp_img, (x - 38, h - 25), (x, h - 25), (255, 255, 255), 2)
+    cv.line(temp_img, (x - 38, h - 25), (x - 38, h - 15), (255, 255, 255), 2)
+    cv.line(temp_img, (x, h - 25), (x, h - 15), (255, 255, 255), 2)
+
+    # TODO: Add "1cm" text
+
+    return temp_img
 
 
 def get_centre(pts):
@@ -394,6 +432,9 @@ ap = argparse.ArgumentParser()
 ap.add_argument("-d", "--directories", required=True, nargs='+',
                 help="The rgb and depth image directories. Usage: python align.py -d <rgb_dir_path> <depth_dir_path>")
 ap.add_argument("-o", "--output_dir", required=False, default="./output", help="The path to store results.")
+ap.add_argument("-l", "--overlay", required=False, help="Enables overlay visualization.", action="store_true")
+ap.add_argument("-s", "--scale", required=False, help="Enables scale to be visible on result images.",
+                action="store_true")
 args = vars(ap.parse_args())
 
 # Checks arguments

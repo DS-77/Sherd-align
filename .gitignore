@@ -8,6 +8,7 @@ extreme/
 extreme_depth/
 cropped/
 maskMaker.py
+overlay.py
 test_align.py
 log.txt
 extreme_rotate.py

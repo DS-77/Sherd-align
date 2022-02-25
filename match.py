@@ -2,15 +2,17 @@
 This module matches individual sherds to their depth image base on shape similarity. The pair is stored in the same
 directory.
 
-version: 1.0.0
-Last Edited: 09-02-22
+version: 1.0.1
+Last Edited: 24-02-22
 """
 import os
 import cv2 as cv
 import numpy as np
 import argparse
+import math
 
 
+# TODO: May need to combine this programme with the align.py
 def create_result(sherd_img, depth_img, sim):
     """
     This function creates the final image containing the cropped rgb and depth image.
@@ -32,7 +34,7 @@ def create_result(sherd_img, depth_img, sim):
     result = np.zeros((height, width, 3), dtype=np.uint8)
 
     result[0:rr, 0:rc, :] = RGB_B
-    result[0:dr, rc:rc+dc, :] = D_B
+    result[0:dr, rc:rc + dc, :] = D_B
 
     cv.putText(result, f'Similarity: {sim}', (50, 50), cv.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2, cv.LINE_AA)
 
@@ -137,6 +139,111 @@ def block_quads(A, img, conts):
     return None
 
 
+def resize_img(img, w, h):
+    """
+    This method downsizes the image.
+    :param img: An image.
+    :param w: Target image width.
+    :param h: Target image height.
+    :return: resized image.
+    """
+    v_scale = h / img.shape[0]
+    h_scale = w / img.shape[1]
+
+    scale = max(v_scale, h_scale)
+    dim = (int(scale * img.shape[1]), int(scale * img.shape[0]))
+    n_img = cv.resize(img, dim, interpolation=cv.INTER_LINEAR)
+
+    return n_img
+
+
+def rotate_img(img, theta):
+    """
+    This function rotates a given image about the centre by a given angle.
+    :param img: An image.
+    :param theta: A number to represent the angle.
+    :return: An image.
+    """
+    if (theta % 360.0) == 0.0:
+        result = img
+    else:
+        h, w, _ = np.shape(img)
+        img_centre = (w // 2, h // 2)
+
+        rot = cv.getRotationMatrix2D(img_centre, theta, 1)
+        rad = math.radians(theta)
+        sin = math.sin(rad)
+        cos = math.cos(rad)
+        b_w = int((h * abs(sin)) + (w * abs(cos)))
+        b_h = int((h * abs(cos)) + (w * abs(sin)))
+
+        rot[0, 2] += ((b_w / 2) - img_centre[0])
+        rot[1, 2] += ((b_h / 2) - img_centre[1])
+        result = cv.warpAffine(img, rot, (b_w, b_h), flags=cv.INTER_LINEAR)
+
+    return result
+
+
+def get_centre(pts):
+    """
+    This function calculates the centre of the given contour.
+    :param pts: A contour.
+    :return: A tuple. i.e (x, y)
+    """
+    mm = cv.moments(pts)
+    x = int(mm['m10'] / mm['m00'])
+    y = int(mm['m01'] / mm['m00'])
+
+    return x, y
+
+
+def get_max_distance(pts, centre):
+    """
+    This function calculates the furthest point in the given contour from the centre of the contour.
+    :param pts: A contour.
+    :param centre: A tuple to represent the centre point. i.e (x, y)
+    :return: An int Distance, A tuple of the max point.
+    """
+    max_d = 0.0
+    min_d = 10000
+    max_pt = None
+    min_pt = None
+
+    for d in range(len(pts)):
+        for x, y in pts[d]:
+            # Find distance from centre
+            temp_d = math.sqrt(math.pow((x - centre[0]), 2) + math.pow((y - centre[1]), 2))
+
+            # Check if distance is greater than previous max distance
+            if temp_d > max_d:
+                max_d = temp_d
+                max_pt = (x, y)
+
+            # Check if distance is less than previous min distance
+            if temp_d < min_d:
+                min_d = temp_d
+                min_pt = (x, y)
+
+    return max_d, max_pt, min_d, min_pt
+
+
+def get_angle(rgb_pts, depth_pts, cen_pts):
+    """
+    This function calculates the angle between the three points: furthest rgb point, the furthest depth point,
+    and the centre point of the contour.
+    :param rgb_pts: A tuple, furthest rgb point of a contour.
+    :param depth_pts: A tuple, the furthest depth point of a contour.
+    :param cen_pts: A tuple, centre point of the contour.
+    :return: An float angle.
+    """
+    angle = math.degrees(
+        math.atan2(depth_pts[1] - cen_pts[1], depth_pts[0] - cen_pts[0]) - math.atan2(rgb_pts[1] - cen_pts[1],
+                                                                                      rgb_pts[0] - cen_pts[0]))
+    angle = angle + 360 if angle < 0 else angle
+
+    return angle
+
+
 def get_img_contours(img):
     """
     This function finds the contour in an image and sorts them.
@@ -186,9 +293,14 @@ def match(filename, rgb_dir, depth_dir, output_path):
 
     # Reads the depth image, convert it to a binary image, and finds the contours.
     for d in dp_files:
-        d_img = cv.imread(os.path.join(depth_dir, d))
+        if ending is None or ending == "ext":
+            d_img = cv.imread(os.path.join(depth_dir, d))
+        else:
+            d_img = cv.flip(cv.imread(os.path.join(depth_dir, d)), 1)
+
         _, dp_BW = cv.threshold(cv.cvtColor(d_img, cv.COLOR_BGR2GRAY), 15, 255, cv.THRESH_BINARY)
         t_cont = get_img_contours(dp_BW)
+
         # Store the contours with the depth image name
         dp_contours.append((t_cont[0], d))
 
@@ -212,20 +324,54 @@ def match(filename, rgb_dir, depth_dir, output_path):
     # Creating result image
     for r in range(len(results)):
 
-        sherd_dir = f"{output_path}/{scan_name}_{r+1}"
+        sherd_dir = f"{output_path}/{scan_name}_{r + 1}"
 
         if not os.path.exists(sherd_dir):
             os.mkdir(sherd_dir)
 
         # Constructs result image
         r_img = crop(A, results[r][0])
-        d_img = cv.imread(os.path.join(depth_dir, results[r][1]))
-        result_img = create_result(r_img, d_img, results[r][2])
+        # Flips depth/mask images for internal sherd rgb images
+        if ending is None or ending == "ext":
+            d_img = cv.imread(os.path.join(depth_dir, results[r][1]))
+        else:
+            d_img = cv.flip(cv.imread(os.path.join(depth_dir, results[r][1])), 1)
+
+        t_img = resize_img(r_img, d_img.shape[1], d_img.shape[0])
+        _, t_BW = cv.threshold(cv.cvtColor(cv.GaussianBlur(t_img, (31, 31), 0), cv.COLOR_BGR2GRAY), 20, 255,
+                               cv.THRESH_BINARY)
+        cont, _ = cv.findContours(t_BW, cv.RETR_CCOMP, cv.CHAIN_APPROX_NONE)
+        cont = sorted(cont, key=cv.contourArea, reverse=True)
+        f_cnt = cont[0]
+
+        # Retrieve angles from the depth and rgb images; calculates the angle of rotation
+        r_cen = get_centre(f_cnt)
+        d_cen = get_centre(results[r][3])
+
+        cen = ((r_cen[0] + d_cen[0]) / 2, (r_cen[1] + d_cen[1]) / 2)
+
+        r_max_d, r_max_pt, r_min_d, r_min_pt = get_max_distance(f_cnt, r_cen)
+        d_max_d, d_max_pt, d_min_d, d_min_pt = get_max_distance(results[r][3], d_cen)
+
+        # Max_theta: Angle calculated from the max depth, RGB, and centre point
+        # Min_theta: Angle calculated from the min depth, RGB, and centre point
+        max_theta = get_angle(r_max_pt, d_max_pt, cen)
+        min_theta = get_angle(r_min_pt, d_min_pt, cen)
+
+        rot_img = rotate_img(d_img, max_theta)
+        result_img = create_result(r_img, rot_img, results[r][2])
+
+        # result_img = create_result(r_img, d_img, results[r][2])
 
         # Store images
-        cv.imwrite(f"{sherd_dir}/{scan_name}_{r+1}.png", r_img)
-        cv.imwrite(f"{sherd_dir}/depth.png", d_img)
-        cv.imwrite(f"{sherd_dir}/sim.png", result_img)
+        if ending is not None:
+            cv.imwrite(f"{sherd_dir}/{scan_name}_{ending}_{r + 1}.png", r_img)
+            cv.imwrite(f"{sherd_dir}/depth_{ending}.png", d_img)
+            cv.imwrite(f"{sherd_dir}/sim_{ending}.png", result_img)
+        else:
+            cv.imwrite(f"{sherd_dir}/{scan_name}_{r + 1}.png", r_img)
+            cv.imwrite(f"{sherd_dir}/depth.png", d_img)
+            cv.imwrite(f"{sherd_dir}/sim.png", result_img)
 
 
 # Argument Parser
@@ -233,6 +379,7 @@ ap = argparse.ArgumentParser()
 ap.add_argument("-d", "--directories", required=True, nargs='+',
                 help="The rgb and depth image directories. Usage: python align.py -d <rgb_dir_path> <depth_dir_path>")
 ap.add_argument("-o", "--output_dir", required=False, default="./output", help="The path to store results.")
+ap.add_argument("-l", "--overlay", required=False, help="Enables overlay visualization.", action="store_true")
 args = vars(ap.parse_args())
 
 # Checks arguments
