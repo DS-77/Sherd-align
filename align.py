@@ -1,8 +1,8 @@
 """
 This module aligns sherds in RGB images to the respective depth images.
 
-version: 1.0.3
-Last Edited: 24-02-22
+version: 1.0.4
+Last Edited: 01-03-22
 """
 import argparse
 import math
