@@ -160,19 +160,29 @@ def overlay_img(r_img, d_img):
 
 
 def add_cm_scale(img):
+    """
+    This function adds a 1cm scale to the bottom of the given image.
+    :param img: An image.
+    :return: An image.
+    """
     padding = 100
     temp_img = cv.copyMakeBorder(img, 0, padding, 0, 0, cv.BORDER_CONSTANT, value=(0, 0, 0))
 
+    h, w, _ = temp_img.shape
+    x = int(w // 2)
+
     # Draw 1 cm scale
-    h, w, _ = img.shape
-    x = w / 2
+    base_height = h - 50
+    fin_height = h - 65
+    base_width = x - 38
 
-    # TODO: Adjust line height
-    cv.line(temp_img, (x - 38, h - 25), (x, h - 25), (255, 255, 255), 2)
-    cv.line(temp_img, (x - 38, h - 25), (x - 38, h - 15), (255, 255, 255), 2)
-    cv.line(temp_img, (x, h - 25), (x, h - 15), (255, 255, 255), 2)
+    cv.line(temp_img, (base_width, base_height), (x, base_height), (255, 255, 255), 2)  # Baseline
+    cv.line(temp_img, (base_width, base_height), (base_width, fin_height), (255, 255, 255), 2)  # Leg One
+    cv.line(temp_img, (x, base_height), (x, fin_height), (255, 255, 255), 2)  # Leg Two
 
-    # TODO: Add "1cm" text
+    # Add text
+    cv.putText(temp_img, "1cm", (base_width - 14, base_height + 30), cv.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2,
+               cv.LINE_AA, False)
 
     return temp_img
 
@@ -419,6 +429,12 @@ def align(filename, rgb_dir, depth_dir, output_path):
 
         # Rotate the Depth image with respect to the RGB image
         rot_img = rotate_img(d_img, max_theta)
+
+        # Add Scale if option was selected
+        if args["scale"]:
+            rot_img = add_cm_scale(rot_img)
+            r_img = add_cm_scale(r_img)
+
         result_img = create_result(r_img, rot_img)
 
         if ending is not None:

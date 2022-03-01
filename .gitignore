@@ -7,6 +7,7 @@ masks/
 extreme/
 extreme_depth/
 cropped/
+scaled/
 maskMaker.py
 overlay.py
 test_align.py
