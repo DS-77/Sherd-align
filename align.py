@@ -1,8 +1,8 @@
 """
 This module aligns sherds in RGB images to the respective depth images.
 
-version: 1.0.4
-Last Edited: 01-03-22
+version: 1.0.5
+Last Edited: 02-03-22
 """
 import argparse
 import math
@@ -159,9 +159,10 @@ def overlay_img(r_img, d_img):
     return r_img
 
 
-def add_cm_scale(img):
+def add_cm_scale(img, s=1):
     """
     This function adds a 1cm scale to the bottom of the given image.
+    :param s: An integer that represents the scale to reduce by.
     :param img: An image.
     :return: An image.
     """
@@ -174,11 +175,12 @@ def add_cm_scale(img):
     # Draw 1 cm scale
     base_height = h - 50
     fin_height = h - 65
-    base_width = x - 38
+    base_width = x - 127
+    fin_width = x + (126 * s)
 
-    cv.line(temp_img, (base_width, base_height), (x, base_height), (255, 255, 255), 2)  # Baseline
+    cv.line(temp_img, (base_width, base_height), (fin_width, base_height), (255, 255, 255), 2)  # Baseline
     cv.line(temp_img, (base_width, base_height), (base_width, fin_height), (255, 255, 255), 2)  # Leg One
-    cv.line(temp_img, (x, base_height), (x, fin_height), (255, 255, 255), 2)  # Leg Two
+    cv.line(temp_img, (fin_width, base_height), (fin_width, fin_height), (255, 255, 255), 2)  # Leg Two
 
     # Add text
     cv.putText(temp_img, "1cm", (base_width - 14, base_height + 30), cv.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2,
@@ -432,7 +434,12 @@ def align(filename, rgb_dir, depth_dir, output_path):
 
         # Add Scale if option was selected
         if args["scale"]:
-            rot_img = add_cm_scale(rot_img)
+            bh, bw, _ = r_img.shape
+            sh, sw, _ = rot_img.shape
+
+            scale = max(int(sh/bh), int(sw/bw))
+
+            rot_img = add_cm_scale(rot_img, scale)
             r_img = add_cm_scale(r_img)
 
         result_img = create_result(r_img, rot_img)
